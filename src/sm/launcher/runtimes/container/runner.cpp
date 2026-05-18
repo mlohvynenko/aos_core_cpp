@@ -6,16 +6,12 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <chrono>
+#include <iomanip>
+#include <iostream>
 
-#include <Poco/Format.h>
-#include <Poco/String.h>
 
-#include <core/common/tools/fs.hpp>
 #include <core/common/tools/logger.hpp>
-#include <core/common/types/common.hpp>
-
-#include <common/utils/exception.hpp>
-#include <sm/utils/systemdconn.hpp>
 
 #include "runner.hpp"
 
@@ -27,38 +23,18 @@ namespace aos::sm::launcher {
 
 namespace {
 
-inline InstanceState ToInstanceState(utils::UnitState state)
+
+void printCurrentDateTime(std::string_view prefix)
 {
-    switch (state.GetValue()) {
-    case utils::UnitStateEnum::eActive:
-        return InstanceStateEnum::eActive;
+    auto now        = std::chrono::system_clock::now();
+    auto now_time_t = std::chrono::system_clock::to_time_t(now);
+    auto now_ns     = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count() % 1000000000;
 
-    case utils::UnitStateEnum::eInactive:
-        return InstanceStateEnum::eInactive;
-
-    default:
-        return InstanceStateEnum::eFailed;
-    }
+    std::cout << prefix << "Current date and time: " << std::put_time(std::localtime(&now_time_t), "%Y-%m-%d %H:%M:%S")
+              << "." << std::setfill('0') << std::setw(9) << now_ns << std::endl;
 }
 
-Error CreateDir(const std::string& path, unsigned perms)
-{
-    std::error_code code;
 
-    std::filesystem::create_directories(path, code);
-    if (code.value() != 0) {
-        return AOS_ERROR_WRAP(Error(code.value(), code.message().c_str()));
-    }
-
-    std::filesystem::permissions(
-        path, static_cast<std::filesystem::perms>(perms), std::filesystem::perm_options::replace, code);
-
-    if (code.value() != 0) {
-        return AOS_ERROR_WRAP(Error(code.value(), code.message().c_str()));
-    }
-
-    return ErrorEnum::eNone;
-}
 
 } // namespace
 
@@ -66,10 +42,10 @@ Error CreateDir(const std::string& path, unsigned perms)
  * Implementation
  **********************************************************************************************************************/
 
-Error Runner::Init(RunStatusReceiverItf& listener, utils::SystemdConnItf& systemdConn)
+Error Runner::Init(RunStatusReceiverItf& receiver, ProcessManagerItf& processManager)
 {
-    mRunStatusReceiver = &listener;
-    mSystemd           = &systemdConn;
+    mRunStatusReceiver = &receiver;
+    mProcessManager    = &processManager;
 
     return ErrorEnum::eNone;
 }
@@ -108,12 +84,14 @@ Error Runner::Stop()
 
 RunStatus Runner::StartInstance(const std::string& instanceID, const RunParameters& params)
 {
+    printCurrentDateTime("Before starting unit. ");
+
+
     RunStatus status = {};
 
     status.mInstanceID = instanceID;
     status.mState      = InstanceStateEnum::eFailed;
 
-    // Fix run parameters.
     RunParameters fixedParams = params;
 
     if (!params.mStartInterval.HasValue()) {
@@ -133,26 +111,44 @@ RunStatus Runner::StartInstance(const std::string& instanceID, const RunParamete
               << Log::Field("startBurst", fixedParams.mStartBurst)
               << Log::Field("restartInterval", fixedParams.mRestartInterval);
 
-    // Create systemd service file.
-    const auto unitName = CreateSystemdUnitName(instanceID);
+    const auto startTime = static_cast<Duration>(cStartTimeMultiplier * fixedParams.mStartInterval.GetValue());
 
-    if (status.mError = SetRunParameters(unitName, fixedParams); !status.mError.IsNone()) {
+    if (status.mError = mProcessManager->StartProcess(instanceID, startTime); !status.mError.IsNone()) {
         return status;
     }
 
-    // Start unit.
-    const auto startTime = static_cast<Duration>(cStartTimeMultiplier * fixedParams.mStartInterval.GetValue());
 
-    if (status.mError = mSystemd->StartUnit(unitName, "replace", startTime); !status.mError.IsNone()) {
-        return status;
+
+    // Start unit.
+    // const auto startTime = static_cast<Duration>(cStartTimeMultiplier * fixedParams.mStartInterval.GetValue());
+
+    // if (std::system("/apps/crun/crun/crun run -d --pid-file /run/aos/runtime/a72c6f72-3211-3eb6-9eb2-d309fccdfc89/.pid -b /run/aos/runtime/a72c6f72-3211-3eb6-9eb2-d309fccdfc89/ a72c6f72-3211-3eb6-9eb2-d309fccdfc89") != 0) {
+    //     LOG_ERR() << "Failed to start instance with crun";
+
+    //     status.mState = InstanceStateEnum::eFailed;
+    // } else  {
+    //     status.mState = InstanceStateEnum::eActive;
+    // }
+
+    // if (status.mError = mSystemd->StartUnit(unitName, "replace", startTime); !status.mError.IsNone()) {
+    //     return status;
+    // }
+
+    printCurrentDateTime("After starting unit. ");
+
+    if (auto [processStatus, err] = mProcessManager->GetProcessStatus(instanceID); !err.IsNone()) {
+        LOG_ERR() << "Failed to get process status after starting instance" << Log::Field(err);
+
+        status.mError = err;
+    } else {
+        status.mState = processStatus.mState;
     }
 
     // Get unit status.
-    Tie(status.mState, status.mError) = GetStartingUnitState(unitName, startTime);
+
 
     LOG_DBG() << "Start instance" << Log::Field("instanceID", instanceID.c_str())
-              << Log::Field("name", unitName.c_str()) << Log::Field("state", status.mState)
-              << Log::Field("error", status.mError);
+              << Log::Field("state", status.mState) << Log::Field("error", status.mError);
 
     return status;
 }
@@ -161,41 +157,28 @@ Error Runner::StopInstance(const std::string& instanceID)
 {
     LOG_DBG() << "Stop instance" << Log::Field("instanceID", instanceID.c_str());
 
-    const auto unitName = CreateSystemdUnitName(instanceID);
-
     {
         std::lock_guard lock {mMutex};
 
-        mRunningUnits.erase(unitName);
+        mRunningUnits.erase(instanceID);
     }
 
-    auto err = mSystemd->StopUnit(unitName, "replace", cDefaultStopTimeout);
+    auto err = mProcessManager->StopProcess(instanceID, cDefaultStopTimeout);
     if (!err.IsNone()) {
         if (err.Is(ErrorEnum::eNotFound)) {
-            LOG_DBG() << "Service not loaded" << Log::Field("instanceID", instanceID.c_str());
+            LOG_DBG() << "Process not found" << Log::Field("instanceID", instanceID.c_str());
 
             err = ErrorEnum::eNone;
         }
     }
 
-    if (auto releaseErr = mSystemd->ResetFailedUnit(unitName); !releaseErr.IsNone()) {
-        if (!releaseErr.Is(ErrorEnum::eNotFound) && err.IsNone()) {
-            err = releaseErr;
-        }
-    }
-
-    if (auto rmErr = RemoveRunParameters(unitName); !rmErr.IsNone()) {
-        if (err.IsNone()) {
-            err = rmErr;
+    if (auto removeErr = mProcessManager->RemoveProcess(instanceID); !removeErr.IsNone()) {
+        if (!removeErr.Is(ErrorEnum::eNotFound) && err.IsNone()) {
+            err = removeErr;
         }
     }
 
     return err;
-}
-
-std::string Runner::GetSystemdDropInsDir() const
-{
-    return cSystemdDropInsDir;
 }
 
 void Runner::MonitorUnits()
@@ -208,36 +191,32 @@ void Runner::MonitorUnits()
             return;
         }
 
-        auto [units, err] = mSystemd->ListUnits();
+        auto [processes, err] = mProcessManager->ListProcesses();
         if (!err.IsNone()) {
-            LOG_ERR() << "Systemd list units failed" << Log::Field(err);
+            LOG_ERR() << "List processes failed" << Log::Field(err);
 
             return;
         }
 
         bool unitChanged = false;
 
-        for (const auto& unit : units) {
-            // Update starting units
-            auto startUnitIt = mStartingUnits.find(unit.mName);
+        for (const auto& process : processes) {
+            auto startUnitIt = mStartingUnits.find(process.mInstanceID);
             if (startUnitIt != mStartingUnits.end()) {
-                startUnitIt->second.mRunState = unit.mActiveState;
-                startUnitIt->second.mExitCode = unit.mExitCode;
+                startUnitIt->second.mRunState = process.mState;
+                startUnitIt->second.mExitCode = process.mExitCode;
 
-                // systemd doesn't change the state of failed unit => notify listener about final state.
-                if (unit.mActiveState == utils::UnitStateEnum::eFailed) {
+                if (process.mState.GetValue() == InstanceStateEnum::eFailed) {
                     startUnitIt->second.mCondVar.notify_all();
                 }
             }
 
-            // Update running units
-            auto runUnitIt = mRunningUnits.find(unit.mName);
+            auto runUnitIt = mRunningUnits.find(process.mInstanceID);
             if (runUnitIt != mRunningUnits.end()) {
-                auto& runningState  = runUnitIt->second;
-                auto  instanceState = ToInstanceState(unit.mActiveState);
+                auto& runningState = runUnitIt->second;
 
-                if (instanceState != runningState.mRunState || unit.mExitCode != runningState.mExitCode) {
-                    runningState = RunningUnitData {instanceState, unit.mExitCode};
+                if (process.mState != runningState.mRunState || process.mExitCode != runningState.mExitCode) {
+                    runningState = RunningUnitData {process.mState, process.mExitCode};
                     unitChanged  = true;
                 }
             }
@@ -255,96 +234,46 @@ std::vector<RunStatus>& Runner::GetRunningInstances() const
 
     std::transform(
         mRunningUnits.begin(), mRunningUnits.end(), std::back_inserter(mRunningInstances), [](const auto& unit) {
-            const auto instanceID = CreateInstanceID(unit.first);
-
             auto error = unit.second.mExitCode.HasValue() ? Error(unit.second.mExitCode.GetValue()) : Error();
 
-            return RunStatus {instanceID, unit.second.mRunState, error};
+            return RunStatus {unit.first, unit.second.mRunState, error};
         });
 
     return mRunningInstances;
 }
 
-Error Runner::SetRunParameters(const std::string& unitName, const RunParameters& params)
-{
-    const std::string parametersFormat = "[Unit]\n"
-                                         "StartLimitIntervalSec=%us\n"
-                                         "StartLimitBurst=%ld\n\n"
-                                         "[Service]\n"
-                                         "RestartSec=%us\n";
-
-    std::string formattedContent
-        = Poco::format(parametersFormat, static_cast<uint32_t>(params.mStartInterval->Seconds()), *params.mStartBurst,
-            static_cast<uint32_t>(params.mRestartInterval->Seconds()));
-
-    const std::string parametersDir = GetSystemdDropInsDir() + "/" + unitName + ".d";
-
-    if (auto err = CreateDir(parametersDir, 0755U); !err.IsNone()) {
-        return err;
-    }
-
-    const auto paramsFile = parametersDir + "/" + cParametersFileName;
-
-    return fs::WriteStringToFile(paramsFile.c_str(), formattedContent.c_str(), 0644U);
-}
-
-Error Runner::RemoveRunParameters(const std::string& unitName)
-{
-    const std::string parametersDir = GetSystemdDropInsDir() + "/" + unitName + ".d";
-
-    return fs::RemoveAll(parametersDir.c_str());
-}
-
-RetWithError<InstanceState> Runner::GetStartingUnitState(const std::string& unitName, Duration startInterval)
+RetWithError<InstanceState> Runner::GetStartingProcessState(const std::string& instanceID, Duration startInterval)
 {
     const auto timeout = std::chrono::milliseconds(startInterval.Milliseconds());
 
-    auto [initialStatus, err] = mSystemd->GetUnitStatus(unitName);
+    auto [initialStatus, err] = mProcessManager->GetProcessStatus(instanceID);
     if (!err.IsNone()) {
-        return {InstanceStateEnum::eFailed, AOS_ERROR_WRAP(Error(err, "failed to get unit status"))};
+        return {InstanceStateEnum::eFailed, AOS_ERROR_WRAP(Error(err, "failed to get process status"))};
     }
 
     {
         std::unique_lock lock {mMutex};
 
-        mStartingUnits[unitName].mRunState = initialStatus.mActiveState;
-        mStartingUnits[unitName].mExitCode = initialStatus.mExitCode;
+        mStartingUnits[instanceID].mRunState = initialStatus.mState;
+        mStartingUnits[instanceID].mExitCode = initialStatus.mExitCode;
 
-        // Wait specified duration for unit state updates.
-        std::ignore   = mStartingUnits[unitName].mCondVar.wait_for(lock, timeout);
-        auto runState = mStartingUnits[unitName].mRunState;
+        std::ignore   = mStartingUnits[instanceID].mCondVar.wait_for(lock, timeout);
+        auto runState = mStartingUnits[instanceID].mRunState;
         auto exitCode
-            = mStartingUnits[unitName].mExitCode.HasValue() ? mStartingUnits[unitName].mExitCode.GetValue() : 0;
+            = mStartingUnits[instanceID].mExitCode.HasValue() ? mStartingUnits[instanceID].mExitCode.GetValue() : 0;
 
-        mStartingUnits.erase(unitName);
+        mStartingUnits.erase(instanceID);
 
-        if (runState.GetValue() != utils::UnitStateEnum::eActive) {
-            const auto errMsg = "failed to start unit";
+        if (runState.GetValue() != InstanceStateEnum::eActive) {
+            const auto errMsg = "failed to start process";
             err               = (exitCode) ? Error(exitCode, errMsg) : Error(ErrorEnum::eFailed, errMsg);
 
             return {InstanceStateEnum::eFailed, AOS_ERROR_WRAP(err)};
         }
 
-        mRunningUnits[unitName] = RunningUnitData {InstanceStateEnum::eActive, exitCode};
+        mRunningUnits[instanceID] = RunningUnitData {InstanceStateEnum::eActive, exitCode};
 
         return {InstanceStateEnum::eActive, ErrorEnum::eNone};
-    }
-}
-
-std::string Runner::CreateSystemdUnitName(const std::string& instance)
-{
-    return Poco::format(cSystemdUnitNameTemplate, instance);
-}
-
-std::string Runner::CreateInstanceID(const std::string& unitname)
-{
-    const std::string prefix = "aos-service@";
-    const std::string suffix = ".service";
-
-    if (Poco::startsWith(unitname, prefix) && Poco::endsWith(unitname, suffix)) {
-        return unitname.substr(prefix.length(), unitname.length() - prefix.length() - suffix.length());
-    } else {
-        AOS_ERROR_THROW(AOS_ERROR_WRAP(Error(ErrorEnum::eInvalidArgument)), "not a valid Aos service name");
     }
 }
 

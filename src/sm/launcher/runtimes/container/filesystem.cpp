@@ -92,7 +92,7 @@ void MountDir(const fs::path& source, const fs::path& mountPoint, const std::str
     const std::string& opts)
 {
     LOG_DBG() << "Mount dir" << Log::Field("source", source.c_str()) << Log::Field("mountPoint", mountPoint.c_str())
-              << Log::Field("type", fsType.c_str());
+              << Log::Field("type", fsType.c_str()) << Log::Field("flags", flags) << Log::Field("opts", opts.c_str());
 
     auto err = common::utils::Retry(
         [&]() { return mount(source.c_str(), mountPoint.c_str(), fsType.c_str(), flags, opts.c_str()); },

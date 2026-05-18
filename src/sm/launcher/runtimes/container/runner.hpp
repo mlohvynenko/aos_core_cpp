@@ -10,14 +10,12 @@
 #include <chrono>
 #include <condition_variable>
 #include <map>
-#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include <core/common/tools/time.hpp>
-
-#include <sm/utils/itf/systemdconn.hpp>
 
 #include "itf/runner.hpp"
 
@@ -32,10 +30,10 @@ public:
      * Initializes Runner instance.
      *
      * @param receiver run status receiver.
-     * @param systemdConn systemd connection.
+     * @param processManager process manager.
      * @return Error.
      */
-    Error Init(RunStatusReceiverItf& receiver, sm::utils::SystemdConnItf& systemdConn) override;
+    Error Init(RunStatusReceiverItf& receiver, ProcessManagerItf& processManager) override;
 
     /**
      * Starts monitoring thread.
@@ -55,7 +53,7 @@ public:
      * Starts service instance.
      *
      * @param instanceID instance ID.
-     * @param runParams runtime parameters.
+     * @param params runtime parameters.
      * @return RunStatus.
      */
     RunStatus StartInstance(const std::string& instanceID, const RunParameters& params) override;
@@ -77,24 +75,13 @@ private:
 
     static constexpr auto cStatusPollPeriod = std::chrono::seconds(1);
 
-    static constexpr auto cSystemdUnitNameTemplate = "aos-service@%s.service";
-    static constexpr auto cSystemdDropInsDir       = "/run/systemd/system";
-    static constexpr auto cParametersFileName      = "parameters.conf";
-
-    virtual std::string GetSystemdDropInsDir() const;
-
-    void                        MonitorUnits();
-    std::vector<RunStatus>&     GetRunningInstances() const;
-    Error                       SetRunParameters(const std::string& unitName, const RunParameters& params);
-    Error                       RemoveRunParameters(const std::string& unitName);
-    RetWithError<InstanceState> GetStartingUnitState(const std::string& unitName, Duration startInterval);
-
-    static std::string CreateSystemdUnitName(const std::string& instance);
-    static std::string CreateInstanceID(const std::string& unitname);
+    void                            MonitorUnits();
+    std::vector<RunStatus>&         GetRunningInstances() const;
+    RetWithError<InstanceState>     GetStartingProcessState(const std::string& instanceID, Duration startInterval);
 
     struct StartingUnitData {
         std::condition_variable mCondVar;
-        sm::utils::UnitState    mRunState;
+        InstanceState           mRunState;
         Optional<int32_t>       mExitCode;
     };
 
@@ -105,10 +92,10 @@ private:
 
     RunStatusReceiverItf* mRunStatusReceiver = nullptr;
 
-    sm::utils::SystemdConnItf* mSystemd = {};
-    std::thread                mMonitoringThread;
-    std::mutex                 mMutex;
-    std::condition_variable    mCondVar;
+    ProcessManagerItf*      mProcessManager = {};
+    std::thread             mMonitoringThread;
+    std::mutex              mMutex;
+    std::condition_variable mCondVar;
 
     std::map<std::string, StartingUnitData> mStartingUnits;
     std::map<std::string, RunningUnitData>  mRunningUnits;

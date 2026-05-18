@@ -15,6 +15,7 @@
 #include "container.hpp"
 #include "filesystem.hpp"
 #include "monitoring.hpp"
+#include "processmanager.hpp"
 #include "runner.hpp"
 
 namespace fs = std::filesystem;
@@ -39,7 +40,7 @@ Error ContainerRuntime::Init(const RuntimeConfig& config,
     iamclient::CurrentNodeInfoProviderItf&        currentNodeInfoProvider, // cppcheck-suppress constParameterReference
     imagemanager::ItemInfoProviderItf& itemInfoProvider, networkmanager::NetworkManagerItf& networkManager,
     iamclient::PermHandlerItf& permHandler, resourcemanager::ResourceInfoProviderItf& resourceInfoProvider,
-    oci::OCISpecItf& ociSpec, InstanceStatusReceiverItf& instanceStatusReceiver, sm::utils::SystemdConnItf& systemdConn)
+    oci::OCISpecItf& ociSpec, InstanceStatusReceiverItf& instanceStatusReceiver)
 {
     try {
         LOG_DBG() << "Init runtime" << Log::Field("type", config.mType.c_str());
@@ -52,25 +53,6 @@ Error ContainerRuntime::Init(const RuntimeConfig& config,
             return err;
         }
 
-        mRunner     = CreateRunner();
-        mFileSystem = CreateFileSystem();
-        mMonitoring = CreateMonitoring();
-
-        mItemInfoProvider       = &itemInfoProvider;
-        mNetworkManager         = &networkManager;
-        mPermHandler            = &permHandler;
-        mResourceInfoProvider   = &resourceInfoProvider;
-        mOCISpec                = &ociSpec;
-        mInstanceStatusReceiver = &instanceStatusReceiver;
-
-        if (auto err = mRunner->Init(*this, systemdConn); !err.IsNone()) {
-            return AOS_ERROR_WRAP(err);
-        }
-
-        if (auto err = mMonitoring->Init(*mNetworkManager); !err.IsNone()) {
-            return AOS_ERROR_WRAP(err);
-        }
-
         ParseContainerConfig(config.mConfig
                 ? common::utils::CaseInsensitiveObjectWrapper(config.mConfig)
                 : common::utils::CaseInsensitiveObjectWrapper(Poco::makeShared<Poco::JSON::Object>()),
@@ -80,6 +62,26 @@ Error ContainerRuntime::Init(const RuntimeConfig& config,
             for (const auto& bind : cDefaultHostFSBinds) {
                 mConfig.mHostBinds.push_back(bind);
             }
+        }
+
+        mRunner         = CreateRunner();
+        mFileSystem     = CreateFileSystem();
+        mMonitoring     = CreateMonitoring();
+        mProcessManager = CreateProcessManager(config.mType, mConfig);
+
+        mItemInfoProvider       = &itemInfoProvider;
+        mNetworkManager         = &networkManager;
+        mPermHandler            = &permHandler;
+        mResourceInfoProvider   = &resourceInfoProvider;
+        mOCISpec                = &ociSpec;
+        mInstanceStatusReceiver = &instanceStatusReceiver;
+
+        if (auto err = mRunner->Init(*this, *mProcessManager); !err.IsNone()) {
+            return AOS_ERROR_WRAP(err);
+        }
+
+        if (auto err = mMonitoring->Init(*mNetworkManager); !err.IsNone()) {
+            return AOS_ERROR_WRAP(err);
         }
 
         if (auto err = mFileSystem->CreateHostFSWhiteouts(mConfig.mHostWhiteoutsDir, mConfig.mHostBinds);
@@ -321,6 +323,16 @@ std::shared_ptr<FileSystemItf> ContainerRuntime::CreateFileSystem()
 std::shared_ptr<MonitoringItf> ContainerRuntime::CreateMonitoring()
 {
     return std::make_shared<Monitoring>();
+}
+
+std::shared_ptr<ProcessManagerItf> ContainerRuntime::CreateProcessManager(
+    const std::string& runnerBin, const ContainerConfig& config)
+{
+    auto pm = std::make_shared<ProcessManager>();
+
+    pm->Init("/usr/bin/" + runnerBin, config.mRuntimeDir);
+
+    return pm;
 }
 
 Error ContainerRuntime::CreateRuntimeInfo(const std::string& runtimeType, const NodeInfo& nodeInfo)
