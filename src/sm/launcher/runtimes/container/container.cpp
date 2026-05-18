@@ -15,7 +15,7 @@
 #include "container.hpp"
 #include "filesystem.hpp"
 #include "monitoring.hpp"
-#include "processmanager.hpp"
+#include "crunhandler.hpp"
 #include "runner.hpp"
 
 namespace fs = std::filesystem;
@@ -67,7 +67,7 @@ Error ContainerRuntime::Init(const RuntimeConfig& config,
         mRunner         = CreateRunner();
         mFileSystem     = CreateFileSystem();
         mMonitoring     = CreateMonitoring();
-        mProcessManager = CreateProcessManager(config.mType, mConfig);
+        mContainerHandler = CreateContainerHandler(config.mType, mConfig);
 
         mItemInfoProvider       = &itemInfoProvider;
         mNetworkManager         = &networkManager;
@@ -76,7 +76,7 @@ Error ContainerRuntime::Init(const RuntimeConfig& config,
         mOCISpec                = &ociSpec;
         mInstanceStatusReceiver = &instanceStatusReceiver;
 
-        if (auto err = mRunner->Init(*this, *mProcessManager); !err.IsNone()) {
+        if (auto err = mRunner->Init(*this, *mContainerHandler); !err.IsNone()) {
             return AOS_ERROR_WRAP(err);
         }
 
@@ -325,10 +325,10 @@ std::shared_ptr<MonitoringItf> ContainerRuntime::CreateMonitoring()
     return std::make_shared<Monitoring>();
 }
 
-std::shared_ptr<ProcessManagerItf> ContainerRuntime::CreateProcessManager(
+std::shared_ptr<ContainerHandlerItf> ContainerRuntime::CreateContainerHandler(
     const std::string& runnerBin, const ContainerConfig& config)
 {
-    auto pm = std::make_shared<ProcessManager>();
+    auto pm = std::make_shared<CrunHandler>();
 
     pm->Init("/usr/bin/" + runnerBin, config.mRuntimeDir);
 

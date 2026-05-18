@@ -10,7 +10,7 @@
 
 #include <sm/launcher/runtimes/container/runner.hpp>
 
-#include "mocks/processmanagermock.hpp"
+#include "mocks/containerhandlermock.hpp"
 #include "mocks/runnermock.hpp"
 
 using namespace testing;
@@ -21,11 +21,11 @@ class ContainerRunnerTest : public Test {
 public:
     static void SetUpTestSuite() { tests::utils::InitLog(); }
 
-    void SetUp() override { mRunner.Init(mRunStatusReceiver, mProcessManagerMock); }
+    void SetUp() override { mRunner.Init(mRunStatusReceiver, mContainerHandlerMock); }
 
 protected:
     RunStatusReceiverMock mRunStatusReceiver;
-    ProcessManagerMock    mProcessManagerMock;
+    ContainerHandlerMock    mContainerHandlerMock;
     Runner                mRunner;
 };
 
@@ -39,12 +39,12 @@ TEST_F(ContainerRunnerTest, StartInstance)
     ProcessStatus status = {"service0", InstanceStateEnum::eActive, {}};
     Error         err    = ErrorEnum::eNone;
 
-    EXPECT_CALL(mProcessManagerMock, StartProcess("service0", _)).WillOnce(Return(err));
-    EXPECT_CALL(mProcessManagerMock, GetProcessStatus("service0"))
+    EXPECT_CALL(mContainerHandlerMock, StartContainer("service0", _)).WillOnce(Return(err));
+    EXPECT_CALL(mContainerHandlerMock, GetContainerStatus("service0"))
         .WillOnce(Return(RetWithError<ProcessStatus>(status, err)));
 
     std::vector<ProcessStatus> processes = {status};
-    EXPECT_CALL(mProcessManagerMock, ListProcesses())
+    EXPECT_CALL(mContainerHandlerMock, ListContainers())
         .WillRepeatedly(Return(RetWithError<std::vector<ProcessStatus>>(processes, err)));
 
     std::vector<RunStatus> expectedInstances {{"service0", InstanceStateEnum::eActive, Error()}};
@@ -58,19 +58,19 @@ TEST_F(ContainerRunnerTest, StartInstance)
 
     sleep(2); // wait to monitor
 
-    EXPECT_CALL(mProcessManagerMock, StopProcess("service0", _)).WillOnce(Return(err));
-    EXPECT_CALL(mProcessManagerMock, RemoveProcess("service0")).WillOnce(Return(err));
+    EXPECT_CALL(mContainerHandlerMock, StopContainer("service0", _)).WillOnce(Return(err));
+    EXPECT_CALL(mContainerHandlerMock, RemoveContainer("service0")).WillOnce(Return(err));
 
     EXPECT_TRUE(mRunner.StopInstance("service0").IsNone());
 
     mRunner.Stop();
 }
 
-TEST_F(ContainerRunnerTest, StartProcessFailed)
+TEST_F(ContainerRunnerTest, StartContainerFailed)
 {
     RunParameters params = {};
 
-    EXPECT_CALL(mProcessManagerMock, StartProcess("service0", _)).WillOnce(Return(ErrorEnum::eFailed));
+    EXPECT_CALL(mContainerHandlerMock, StartContainer("service0", _)).WillOnce(Return(ErrorEnum::eFailed));
 
     mRunner.Start();
 
@@ -81,7 +81,7 @@ TEST_F(ContainerRunnerTest, StartProcessFailed)
     mRunner.Stop();
 }
 
-TEST_F(ContainerRunnerTest, GetProcessStatusFailed)
+TEST_F(ContainerRunnerTest, GetContainerStatusFailed)
 {
     mRunner.Start();
 
@@ -89,8 +89,8 @@ TEST_F(ContainerRunnerTest, GetProcessStatusFailed)
     ProcessStatus status = {"service0", InstanceStateEnum::eFailed, {1}};
     Error         err    = ErrorEnum::eFailed;
 
-    EXPECT_CALL(mProcessManagerMock, StartProcess("service0", _)).WillOnce(Return(Error()));
-    EXPECT_CALL(mProcessManagerMock, GetProcessStatus("service0"))
+    EXPECT_CALL(mContainerHandlerMock, StartContainer("service0", _)).WillOnce(Return(Error()));
+    EXPECT_CALL(mContainerHandlerMock, GetContainerStatus("service0"))
         .WillOnce(Return(RetWithError<ProcessStatus>(status, err)));
 
     const auto expectedRes = RunStatus {"service0", InstanceStateEnum::eFailed, ErrorEnum::eFailed};
@@ -100,13 +100,13 @@ TEST_F(ContainerRunnerTest, GetProcessStatusFailed)
     mRunner.Stop();
 }
 
-TEST_F(ContainerRunnerTest, ListProcessesFailed)
+TEST_F(ContainerRunnerTest, ListContainersFailed)
 {
     mRunner.Start();
 
     RunParameters params = {};
 
-    EXPECT_CALL(mProcessManagerMock, StartProcess("service0", _)).WillOnce(Return(ErrorEnum::eFailed));
+    EXPECT_CALL(mContainerHandlerMock, StartContainer("service0", _)).WillOnce(Return(ErrorEnum::eFailed));
 
     const auto expectedRes = RunStatus {"service0", InstanceStateEnum::eFailed, ErrorEnum::eFailed};
 
@@ -114,7 +114,7 @@ TEST_F(ContainerRunnerTest, ListProcessesFailed)
 
     std::vector<ProcessStatus> processes = {{"service0", InstanceStateEnum::eFailed, {1}}};
 
-    EXPECT_CALL(mProcessManagerMock, ListProcesses())
+    EXPECT_CALL(mContainerHandlerMock, ListContainers())
         .WillOnce(Return(RetWithError<std::vector<ProcessStatus>>(processes, Error(ErrorEnum::eFailed))));
 
     sleep(2); // wait to monitor

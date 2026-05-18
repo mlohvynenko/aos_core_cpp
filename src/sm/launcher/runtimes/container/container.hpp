@@ -134,7 +134,7 @@ private:
     virtual std::shared_ptr<RunnerItf>          CreateRunner();
     virtual std::shared_ptr<FileSystemItf>      CreateFileSystem();
     virtual std::shared_ptr<MonitoringItf>      CreateMonitoring();
-    virtual std::shared_ptr<ProcessManagerItf>  CreateProcessManager(
+    virtual std::shared_ptr<ContainerHandlerItf>  CreateContainerHandler(
         const std::string& runnerBin, const ContainerConfig& config);
 
     Error UpdateRunStatus(const std::vector<RunStatus>& instances) override;
@@ -146,7 +146,7 @@ private:
     std::shared_ptr<RunnerItf>          mRunner;
     std::shared_ptr<FileSystemItf>      mFileSystem;
     std::shared_ptr<MonitoringItf>      mMonitoring;
-    std::shared_ptr<ProcessManagerItf>  mProcessManager;
+    std::shared_ptr<ContainerHandlerItf>  mContainerHandler;
 
     imagemanager::ItemInfoProviderItf*        mItemInfoProvider {};
     networkmanager::NetworkManagerItf*        mNetworkManager {};

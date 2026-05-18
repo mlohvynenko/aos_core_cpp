@@ -42,10 +42,10 @@ void printCurrentDateTime(std::string_view prefix)
  * Implementation
  **********************************************************************************************************************/
 
-Error Runner::Init(RunStatusReceiverItf& receiver, ProcessManagerItf& processManager)
+Error Runner::Init(RunStatusReceiverItf& receiver, ContainerHandlerItf& containerHandler)
 {
     mRunStatusReceiver = &receiver;
-    mProcessManager    = &processManager;
+    mContainerHandler  = &containerHandler;
 
     return ErrorEnum::eNone;
 }
@@ -113,7 +113,7 @@ RunStatus Runner::StartInstance(const std::string& instanceID, const RunParamete
 
     const auto startTime = static_cast<Duration>(cStartTimeMultiplier * fixedParams.mStartInterval.GetValue());
 
-    if (status.mError = mProcessManager->StartProcess(instanceID, startTime); !status.mError.IsNone()) {
+    if (status.mError = mContainerHandler->StartContainer(instanceID, startTime); !status.mError.IsNone()) {
         return status;
     }
 
@@ -136,7 +136,7 @@ RunStatus Runner::StartInstance(const std::string& instanceID, const RunParamete
 
     printCurrentDateTime("After starting unit. ");
 
-    if (auto [processStatus, err] = mProcessManager->GetProcessStatus(instanceID); !err.IsNone()) {
+    if (auto [processStatus, err] = mContainerHandler->GetContainerStatus(instanceID); !err.IsNone()) {
         LOG_ERR() << "Failed to get process status after starting instance" << Log::Field(err);
 
         status.mError = err;
@@ -163,7 +163,7 @@ Error Runner::StopInstance(const std::string& instanceID)
         mRunningUnits.erase(instanceID);
     }
 
-    auto err = mProcessManager->StopProcess(instanceID, cDefaultStopTimeout);
+    auto err = mContainerHandler->StopContainer(instanceID, cDefaultStopTimeout);
     if (!err.IsNone()) {
         if (err.Is(ErrorEnum::eNotFound)) {
             LOG_DBG() << "Process not found" << Log::Field("instanceID", instanceID.c_str());
@@ -172,7 +172,7 @@ Error Runner::StopInstance(const std::string& instanceID)
         }
     }
 
-    if (auto removeErr = mProcessManager->RemoveProcess(instanceID); !removeErr.IsNone()) {
+    if (auto removeErr = mContainerHandler->RemoveContainer(instanceID); !removeErr.IsNone()) {
         if (!removeErr.Is(ErrorEnum::eNotFound) && err.IsNone()) {
             err = removeErr;
         }
@@ -191,7 +191,7 @@ void Runner::MonitorUnits()
             return;
         }
 
-        auto [processes, err] = mProcessManager->ListProcesses();
+        auto [processes, err] = mContainerHandler->ListContainers();
         if (!err.IsNone()) {
             LOG_ERR() << "List processes failed" << Log::Field(err);
 
@@ -246,7 +246,7 @@ RetWithError<InstanceState> Runner::GetStartingProcessState(const std::string& i
 {
     const auto timeout = std::chrono::milliseconds(startInterval.Milliseconds());
 
-    auto [initialStatus, err] = mProcessManager->GetProcessStatus(instanceID);
+    auto [initialStatus, err] = mContainerHandler->GetContainerStatus(instanceID);
     if (!err.IsNone()) {
         return {InstanceStateEnum::eFailed, AOS_ERROR_WRAP(Error(err, "failed to get process status"))};
     }

@@ -18,7 +18,7 @@
 
 #include <sm/launcher/runtimes/container/container.hpp>
 
-#include "mocks/processmanagermock.hpp"
+#include "mocks/containerhandlermock.hpp"
 
 #include "mocks/filesystemmock.hpp"
 #include "mocks/monitoringmock.hpp"
@@ -186,15 +186,15 @@ public:
     std::shared_ptr<NiceMock<RunnerMock>>          mRunner         = std::make_shared<NiceMock<RunnerMock>>();
     std::shared_ptr<NiceMock<FileSystemMock>>      mFileSystem     = std::make_shared<NiceMock<FileSystemMock>>();
     std::shared_ptr<NiceMock<MonitoringMock>>      mMonitoring     = std::make_shared<NiceMock<MonitoringMock>>();
-    std::shared_ptr<NiceMock<ProcessManagerMock>>  mProcessManager = std::make_shared<NiceMock<ProcessManagerMock>>();
+    std::shared_ptr<NiceMock<ContainerHandlerMock>>  mContainerHandler = std::make_shared<NiceMock<ContainerHandlerMock>>();
 
 private:
     std::shared_ptr<RunnerItf>         CreateRunner() override { return mRunner; }
     std::shared_ptr<FileSystemItf>     CreateFileSystem() override { return mFileSystem; }
     std::shared_ptr<MonitoringItf>     CreateMonitoring() override { return mMonitoring; }
-    std::shared_ptr<ProcessManagerItf> CreateProcessManager(const std::string&, const ContainerConfig&) override
+    std::shared_ptr<ContainerHandlerItf> CreateContainerHandler(const std::string&, const ContainerConfig&) override
     {
-        return mProcessManager;
+        return mContainerHandler;
     }
 };
 
@@ -216,7 +216,7 @@ protected:
             .WillRepeatedly(DoAll(SetArgReferee<0>(mNodeInfo), Return(ErrorEnum::eNone)));
         EXPECT_CALL(*mRuntime.mFileSystem, CreateHostFSWhiteouts(_, _)).WillOnce(Return(ErrorEnum::eNone));
         EXPECT_CALL(*mRuntime.mRunner, Init)
-            .WillOnce(Invoke([&](RunStatusReceiverItf& runStatusReceiver, ProcessManagerItf&) {
+            .WillOnce(Invoke([&](RunStatusReceiverItf& runStatusReceiver, ContainerHandlerItf&) {
                 mRunStatusReceiver = &runStatusReceiver;
 
                 return ErrorEnum::eNone;

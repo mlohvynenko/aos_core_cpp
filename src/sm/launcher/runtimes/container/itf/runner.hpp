@@ -11,7 +11,7 @@
 
 #include <core/common/types/instance.hpp>
 
-#include "processmanager.hpp"
+#include "containerhandler.hpp"
 
 namespace aos::sm::launcher {
 
@@ -76,10 +76,10 @@ public:
      * Initializes runner.
      *
      * @param receiver run status receiver.
-     * @param processManager process manager.
+     * @param containerHandler container handler.
      * @return Error.
      */
-    virtual Error Init(RunStatusReceiverItf& receiver, ProcessManagerItf& processManager) = 0;
+    virtual Error Init(RunStatusReceiverItf& receiver, ContainerHandlerItf& containerHandler) = 0;
 
     /**
      * Starts runner.

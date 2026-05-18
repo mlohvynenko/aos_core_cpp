@@ -80,7 +80,7 @@ set(SOURCES
     filesystem.cpp
     instance.cpp
     monitoring.cpp
-    processmanager.cpp
+    crunhandler.cpp
     runner.cpp
     runtimeconfig.cpp
 )

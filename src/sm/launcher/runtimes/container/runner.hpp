@@ -33,7 +33,7 @@ public:
      * @param processManager process manager.
      * @return Error.
      */
-    Error Init(RunStatusReceiverItf& receiver, ProcessManagerItf& processManager) override;
+    Error Init(RunStatusReceiverItf& receiver, ContainerHandlerItf& containerHandler) override;
 
     /**
      * Starts monitoring thread.
@@ -92,7 +92,7 @@ private:
 
     RunStatusReceiverItf* mRunStatusReceiver = nullptr;
 
-    ProcessManagerItf*      mProcessManager = {};
+    ContainerHandlerItf*    mContainerHandler = {};
     std::thread             mMonitoringThread;
     std::mutex              mMutex;
     std::condition_variable mCondVar;
