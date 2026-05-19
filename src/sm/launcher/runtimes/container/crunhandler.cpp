@@ -8,10 +8,14 @@
 // libcrun/error.h) can define its own LOG_ERR=3.  Save and restore across the C-header block.
 #include <core/common/tools/logger.hpp>
 
-#include <thread>
-#include <iostream>
 #include <chrono>
+#include <csignal>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
+#include <iostream>
+#include <signal.h>
+#include <thread>
 
 #pragma push_macro("LOG_ERR")
 #undef LOG_ERR
@@ -35,9 +39,9 @@ libcrun_context_t MakeContext(const std::string& stateRoot, const std::string& i
 {
     libcrun_context_t ctx = {};
 
-    ctx.state_root = stateRoot.c_str();
-    ctx.state_root = "/run/crun";
-    ctx.id         = id.c_str();
+    ctx.state_root        = stateRoot.c_str();
+    ctx.state_root        = "/run/crun";
+    ctx.id                = id.c_str();
     ctx.fifo_exec_wait_fd = -1;
 
     return ctx;
@@ -53,7 +57,6 @@ Error ReleaseLibcrunError(libcrun_error_t& err, const char* op)
     return Error(ErrorEnum::eFailed, msg);
 }
 
-
 void printCurrentDateTime(std::string_view prefix)
 {
     auto now        = std::chrono::system_clock::now();
@@ -63,7 +66,6 @@ void printCurrentDateTime(std::string_view prefix)
     std::cout << prefix << "Current date and time: " << std::put_time(std::localtime(&now_time_t), "%Y-%m-%d %H:%M:%S")
               << "." << std::setfill('0') << std::setw(9) << now_ns << std::endl;
 }
-
 
 } // namespace
 
@@ -93,7 +95,7 @@ Error CrunHandler::StartContainer(const std::string& instanceID, Duration /*time
 
     // Pre-delete any leftover container state (ignore failure).
     // libcrun_container_delete(&ctx, nullptr, instanceID.c_str(), true, &err);
-    // libcrun_container_kill(&ctx, instanceID.c_str(), "SIGKILL", &err);
+    libcrun_container_kill(&ctx, instanceID.c_str(), "SIGKILL", &err);
     libcrun_error_release(&err);
 
     printCurrentDateTime("Before loading container. ");
@@ -155,8 +157,11 @@ RetWithError<std::vector<ProcessStatus>> CrunHandler::ListContainers()
 
 Error CrunHandler::StopContainer(const std::string& instanceID, Duration /*timeout*/)
 {
-    libcrun_error_t   err = nullptr;
-    libcrun_context_t ctx = MakeContext(mRuntimeDir, instanceID);
+    libcrun_error_t   err     = nullptr;
+    libcrun_context_t ctx     = MakeContext(mRuntimeDir, instanceID);
+    const std::string pidFile = mRuntimeDir + "/" + instanceID + "/.pid";
+
+    ctx.pid_file = pidFile.c_str();
 
     if (libcrun_container_kill(&ctx, instanceID.c_str(), "SIGKILL", &err) < 0) {
         return ReleaseLibcrunError(err, "kill container");
@@ -193,7 +198,7 @@ RetWithError<ProcessStatus> CrunHandler::CheckProcessAlive(const std::string& in
 
     status.mInstanceID = instanceID;
 
-    libcrun_error_t          err        = nullptr;
+    libcrun_error_t            err        = nullptr;
     libcrun_container_status_t crunStatus = {};
 
     if (libcrun_read_container_status(&crunStatus, "/run/crun", instanceID.c_str(), &err) < 0) {
