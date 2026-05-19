@@ -89,8 +89,8 @@ Error Instance::Start()
 
     auto runtimeDir = common::utils::JoinPath(mConfig.mRuntimeDir, mInstanceID);
 
-    LOG_DBG() << "Start instance" << Log::Field("instanceID", mInstanceID.c_str()) << Log::Field("runtimeDir", runtimeDir.c_str());
-
+    LOG_DBG() << "Start instance" << Log::Field("instanceID", mInstanceID.c_str())
+              << Log::Field("runtimeDir", runtimeDir.c_str());
 
     if (err = mFileSystem.ClearDir(runtimeDir); !err.IsNone()) {
         return AOS_ERROR_WRAP(err);
@@ -116,11 +116,11 @@ Error Instance::Start()
         return err;
     }
 
-    // if (mInstanceInfo.mNetworkParameters.HasValue()) {
-    //     if (err = SetupNetwork(runtimeDir, *itemConfig); !err.IsNone()) {
-    //         return err;
-    //     }
-    // }
+    if (mInstanceInfo.mNetworkParameters.HasValue()) {
+        if (err = SetupNetwork(runtimeDir, *itemConfig); !err.IsNone()) {
+            return err;
+        }
+    }
 
     if (mInstanceInfo.mMonitoringParams.HasValue()) {
         if (err = StartMonitoring(); !err.IsNone()) {
@@ -293,17 +293,17 @@ Error Instance::CreateRuntimeConfig(const std::string& runtimeDir, const oci::Im
         return err;
     }
 
-    // if (mInstanceInfo.mNetworkParameters.HasValue()) {
-    //     auto [instanceNetns, err] = mNetworkManager.GetNetnsPath(mInstanceID.c_str());
-    //     if (!err.IsNone()) {
-    //         return AOS_ERROR_WRAP(err);
-    //     }
+    if (mInstanceInfo.mNetworkParameters.HasValue()) {
+        auto [instanceNetns, err] = mNetworkManager.GetNetnsPath(mInstanceID.c_str());
+        if (!err.IsNone()) {
+            return AOS_ERROR_WRAP(err);
+        }
 
-    //     if (err = AddNamespace(oci::LinuxNamespace {oci::LinuxNamespaceEnum::eNetwork, instanceNetns}, runtimeConfig);
-    //         !err.IsNone()) {
-    //         return err;
-    //     }
-    // }
+        if (err = AddNamespace(oci::LinuxNamespace {oci::LinuxNamespaceEnum::eNetwork, instanceNetns}, runtimeConfig);
+            !err.IsNone()) {
+            return err;
+        }
+    }
 
     if (auto err = CreateAosEnvVars(runtimeConfig); !err.IsNone()) {
         return err;
@@ -476,15 +476,6 @@ Error Instance::ApplyItemConfig(const oci::ItemConfig& itemConfig, oci::RuntimeC
         }
 
         auto mount = std::make_unique<Mount>("tmpfs", "/tmp", "tmpfs", tmpFSOpts);
-
-        if (auto err = AddMount(*mount, runtimeConfig); !err.IsNone()) {
-            return err;
-        }
-    }
-
-    {
-
-        auto mount = std::make_unique<Mount>("tmpfs", "/run", "tmpfs", "nosuid,strictatime,mode=755,size=65536k");
 
         if (auto err = AddMount(*mount, runtimeConfig); !err.IsNone()) {
             return err;
@@ -728,7 +719,7 @@ Error Instance::PrepareRootFS(
     }
 
     layers.push_back(mConfig.mHostWhiteoutsDir);
-    layers.push_back("/usr/");
+    layers.push_back("/");
 
     if (auto err = mFileSystem.MountServiceRootFS(common::utils::JoinPath(runtimeDir, cRootFSDir), layers);
         !err.IsNone()) {

@@ -70,16 +70,16 @@ Error FSPlatform::SetUserQuota(const String& path, uid_t uid, size_t quota) cons
     LOG_DBG() << "Set quota" << Log::Field("path", path) << Log::Field("device", device) << Log::Field("quota", quota)
               << Log::Field("uid", uid);
 
-    // dqblk dq {};
+    dqblk dq {};
 
-    // dq.dqb_bhardlimit = (quota + 1023) / 1024;
-    // dq.dqb_valid      = QIF_BLIMITS;
+    dq.dqb_bhardlimit = (quota + 1023) / 1024;
+    dq.dqb_valid      = QIF_BLIMITS;
 
-    // if (auto res
-    //     = quotactl(QCMD(Q_SETQUOTA, USRQUOTA), device.CStr(), static_cast<int>(uid), reinterpret_cast<char*>(&dq));
-    //     res == -1) {
-    //     return AOS_ERROR_WRAP(Error(ErrorEnum::eFailed, strerror(errno)));
-    // }
+    if (auto res
+        = quotactl(QCMD(Q_SETQUOTA, USRQUOTA), device.CStr(), static_cast<int>(uid), reinterpret_cast<char*>(&dq));
+        res == -1) {
+        return AOS_ERROR_WRAP(Error(ErrorEnum::eFailed, strerror(errno)));
+    }
 
     return ErrorEnum::eNone;
 }

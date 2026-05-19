@@ -9,8 +9,6 @@
 #include <regex>
 #include <sstream>
 
-#include <iostream>
-
 #include <common/utils/exception.hpp>
 
 #include "iptables.hpp"
@@ -260,10 +258,9 @@ void IPTables::ExecuteCommand(const std::string& command) const
 {
     std::string cmdWithWait = command + " --wait";
 
-    // if (int result = std::system(cmdWithWait.c_str()); result != 0) {
-    //     throw std::runtime_error("failed to execute iptables command: " + command);
-    // }
-   std::clog << "Skipping execution of iptables command: " << cmdWithWait << std::endl;
+    if (int result = std::system(cmdWithWait.c_str()); result != 0) {
+        throw std::runtime_error("failed to execute iptables command: " + command);
+    }
 }
 
 std::vector<std::string> IPTables::ExecuteCommandWithOutput(const std::string& command) const
