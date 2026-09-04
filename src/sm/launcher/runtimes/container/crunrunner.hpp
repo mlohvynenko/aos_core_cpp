@@ -10,7 +10,7 @@
 #include <sys/types.h>
 
 #include <mutex>
-#include <set>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -39,14 +39,6 @@ public:
      * @return Error.
      */
     Error StartContainer(const std::string& instanceID) override;
-
-    /**
-     * Starts managing an already running container without starting it.
-     *
-     * @param instanceID instance ID.
-     * @return Error.
-     */
-    Error AddContainer(const std::string& instanceID) override;
 
     /**
      * Returns the status of a container.
@@ -83,11 +75,17 @@ private:
     RetWithError<ContainerStatus> CheckProcessAlive(const std::string& instanceID) const;
     void                          ReapExitedContainers();
 
-    std::string           mRuntimeDir;
-    std::string           mStateRoot;
-    std::string           mCRunExecutable;
-    mutable std::mutex    mMutex;
-    std::set<std::string> mManagedInstances;
+    // Exit codes are reaped via waitpid() on our direct child, so they only ever exist in this process's
+    // memory. Persisting the value to disk the moment it's known lets a restarted SM recover it for
+    // GetContainerStatus()/ListContainers() instead of only ever seeing "not running".
+    std::string            ExitCodeFilePath(const std::string& instanceID) const;
+    void                   PersistExitCode(const std::string& instanceID, int32_t exitCode) const;
+    std::optional<int32_t> ReadPersistedExitCode(const std::string& instanceID) const;
+
+    std::string        mRuntimeDir;
+    std::string        mStateRoot;
+    std::string        mCRunExecutable;
+    mutable std::mutex mMutex;
 
     std::unordered_map<std::string, pid_t>   mPids; // instanceID -> unreaped crun subprocess pid
     std::unordered_map<std::string, int32_t> mExitCodes; // instanceID -> exit code, once reaped

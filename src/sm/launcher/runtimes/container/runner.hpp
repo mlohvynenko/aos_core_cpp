@@ -93,7 +93,7 @@ private:
     bool                        SyncStates();
     void                        SetInstancesToRestart();
     void                        MonitorContainers();
-    std::vector<RunStatus>&     GetRunningInstances() const;
+    std::vector<RunStatus>&     RefreshStatusCache() const;
     RetWithError<InstanceState> InitContainerState(const std::string& instanceID, const RunParameters& params);
     void                        RestartInstances();
     RunParameters               GetFixedParams(const RunParameters& params) const;
@@ -114,9 +114,9 @@ private:
     std::mutex              mMutex;
     std::condition_variable mCondVar;
 
-    std::unordered_map<std::string, RunningUnitData> mRunningContainers;
+    std::unordered_map<std::string, RunningUnitData> mManagedInstances;
     std::set<std::string>                            mInstancesToRestart;
-    mutable std::vector<RunStatus>                   mRunningInstances;
+    mutable std::vector<RunStatus>                   mStatusCache;
 
     bool mClosed = false;
 };
