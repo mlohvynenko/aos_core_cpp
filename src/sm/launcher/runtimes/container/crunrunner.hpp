@@ -7,7 +7,6 @@
 #ifndef AOS_SM_LAUNCHER_RUNTIMES_CONTAINER_CRUNRUNNER_HPP_
 #define AOS_SM_LAUNCHER_RUNTIMES_CONTAINER_CRUNRUNNER_HPP_
 
-#include <mutex>
 #include <set>
 #include <string>
 
@@ -36,14 +35,6 @@ public:
      * @return Error.
      */
     Error StartContainer(const std::string& instanceID) override;
-
-    /**
-     * Starts managing an already running container without starting it.
-     *
-     * @param instanceID instance ID.
-     * @return Error.
-     */
-    Error AddContainer(const std::string& instanceID) override;
 
     /**
      * Returns the status of a container.
@@ -79,11 +70,9 @@ public:
 private:
     RetWithError<ContainerStatus> CheckProcessAlive(const std::string& instanceID) const;
 
-    std::string           mRuntimeDir;
-    std::string           mStateRoot;
-    std::string           mCRunExecutable;
-    std::mutex            mMutex;
-    std::set<std::string> mManagedInstances;
+    std::string mRuntimeDir;
+    std::string mStateRoot;
+    std::string mCRunExecutable;
 };
 
 } // namespace aos::sm::launcher

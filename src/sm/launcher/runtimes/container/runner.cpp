@@ -114,10 +114,6 @@ RunStatus Runner::WatchInstance(const std::string& instanceID, const RunParamete
               << Log::Field("startBurst", fixedParams.mStartBurst)
               << Log::Field("restartInterval", fixedParams.mRestartInterval);
 
-    if (status.mError = mContainerRunner->AddContainer(instanceID); !status.mError.IsNone()) {
-        return status;
-    }
-
     Tie(status.mState, status.mError) = InitContainerState(instanceID, fixedParams);
 
     LOG_DBG() << "Watch instance" << Log::Field("instanceID", instanceID.c_str()) << Log::Field("state", status.mState)

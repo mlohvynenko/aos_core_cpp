@@ -76,23 +76,6 @@ Error CRunRunner::StartContainer(const std::string& instanceID)
         return AOS_ERROR_WRAP(err);
     }
 
-    {
-        std::lock_guard lock {mMutex};
-
-        mManagedInstances.insert(instanceID);
-    }
-
-    return ErrorEnum::eNone;
-}
-
-Error CRunRunner::AddContainer(const std::string& instanceID)
-{
-    LOG_DBG() << "Add crun container" << Log::Field("instanceID", instanceID.c_str());
-
-    std::lock_guard lock {mMutex};
-
-    mManagedInstances.insert(instanceID);
-
     return ErrorEnum::eNone;
 }
 
@@ -105,20 +88,26 @@ RetWithError<ContainerStatus> CRunRunner::GetContainerStatus(const std::string& 
 
 RetWithError<std::vector<ContainerStatus>> CRunRunner::ListContainers()
 {
-    std::set<std::string> instances;
+    // Enumerate crun's own state root instead of keeping a separate in-memory set of managed instances: this
+    // stays correct even for containers we did not start ourselves (WatchInstance re-attaching after a restart)
+    // and can never drift from what crun itself considers alive. Relies on mStateRoot being exclusively ours -
+    // libcrun_get_containers_list() fails outright if the directory holds anything crun didn't create.
+    libcrun_error_t           err  = nullptr;
+    libcrun_container_list_t* list = nullptr;
 
-    {
-        std::lock_guard lock {mMutex};
-
-        instances = mManagedInstances;
+    if (libcrun_get_containers_list(&list, mStateRoot.c_str(), &err) < 0) {
+        return {{}, AOS_ERROR_WRAP(ReleaseLibcrunError(err))};
     }
+
+    auto release = DeferRelease(list, libcrun_free_containers_list);
 
     std::vector<ContainerStatus> result;
 
-    for (const auto& id : instances) {
-        auto [status, err] = CheckProcessAlive(id);
-        if (!err.IsNone()) {
-            LOG_WRN() << "Failed to check process status" << Log::Field("instanceID", id.c_str()) << Log::Field(err);
+    for (auto* entry = list; entry != nullptr; entry = entry->next) {
+        auto [status, statusErr] = CheckProcessAlive(entry->name);
+        if (!statusErr.IsNone()) {
+            LOG_WRN() << "Failed to check process status" << Log::Field("instanceID", entry->name)
+                      << Log::Field(statusErr);
         }
 
         result.push_back(status);
@@ -144,12 +133,6 @@ Error CRunRunner::StopContainer(const std::string& instanceID)
 Error CRunRunner::RemoveContainer(const std::string& instanceID)
 {
     LOG_DBG() << "Remove crun container" << Log::Field("instanceID", instanceID.c_str());
-
-    {
-        std::lock_guard lock {mMutex};
-
-        mManagedInstances.erase(instanceID);
-    }
 
     libcrun_error_t   err = nullptr;
     libcrun_context_t ctx = MakeContext(mStateRoot, instanceID);
